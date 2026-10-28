@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClickBot</title>
+<style>
+  :root {
+    --bg: #f5f5f5; --panel: #fff; --text: #222; --text-muted: #777;
+    --border: #ddd; --tab-bg: #e5e5e5; --tab-text: #666;
+    --tab-active-bg: #bbf7a3; --tab-active-text: #111;
+    --btn-bg: #222; --btn-text: #fff; --btn-disabled: #ccc; --error: #d9534f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212; --panel: #1e1e1e; --text: #eee; --text-muted: #999;
+      --border: #333; --tab-bg: #2a2a2a; --tab-text: #aaa;
+      --tab-active-bg: #bbf7a3; --tab-active-text: #111;
+      --btn-bg: #eee; --btn-text: #111; --btn-disabled: #444; --error: #e07a76;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 32px 16px; transition: background .2s, color .2s; }
+  .wrap { max-width: 560px; margin: 0 auto; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 20px; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; padding: 10px 18px; border-radius: 8px; border: none; background: var(--tab-bg); color: var(--tab-text); font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background .15s, color .15s; }
+  .tab:hover { filter: brightness(0.95); }
+  .tab.active { background: var(--tab-active-bg); color: var(--tab-active-text); }
+  .pane { display: none; }
+  .pane.active { display: block; }
+  h2 { font-size: 17px; margin: 0 0 4px; color: var(--text); }
+  p { color: var(--text-muted); font-size: 14px; margin: 0 0 16px; }
+  input[type=file] { display: block; width: 100%; padding: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 14px; color: var(--text); }
+  .info { margin-top: 12px; padding: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font-size: 13px; color: var(--text-muted); line-height: 1.5; word-break: break-word; }
+  .info b { color: var(--text); }
+  .info.error { color: var(--error); border-color: var(--error); }
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .settings label { font-size: 13px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
+  input[type=number], select, input[type=text] { padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 15px; background: var(--panel); color: var(--text); }
+  button.render { width: 100%; padding: 12px; background: var(--btn-bg); color: var(--btn-text); border: none; border-radius: 8px; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer; }
+  button.render:hover:not(:disabled) { opacity: 0.9; }
+  button.render:disabled { background: var(--btn-disabled); cursor: not-allowed; }
+  .conv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .conv-actions label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+  #log, #convLog { margin-top: 12px; font-size: 13px; color: var(--text-muted); text-align: center; white-space: pre-wrap; }
+  #log.error, #convLog.error { color: var(--error); }
+  @media (max-width: 480px) { .settings { grid-template-columns: 1fr; } }
+
+  .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--panel); padding: 24px; border-radius: 12px; max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border: 1px solid var(--border); }
+  .modal h3 { margin: 0 0 16px 0; font-size: 16px; color: var(--text); }
+  .modal-btns { display: flex; flex-direction: column; gap: 8px; }
+  .modal-btns button { padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 15px; cursor: pointer; font-family: inherit; font-weight: 600; transition: background .15s; }
+  .modal-btns button:hover { background: var(--tab-bg); }
+  .modal-btns button.cancel { background: transparent; color: var(--text-muted); border: none; font-weight: 400; font-size: 13px; margin-top: 8px; }
+  .modal-btns button.cancel:hover { color: var(--text); background: transparent; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab active" data-target="pane-pack">ClickPacks</button>
+    <button class="tab" data-target="pane-render">Render Sound</button>
+    <button class="tab" data-target="pane-macro">Select Macros</button>
+    <button class="tab" data-target="pane-convert">Converter</button>
+  </div>
+
+  <div class="pane active" id="pane-pack">
+    <h2>ClickPacks</h2>
+    <p>Upload a .zip pack or a single audio file. Required for rendering.</p>
+    <input type="file" id="packInput" accept=".zip,application/zip,audio/*">
+    <div class="info" id="packInfo">No pack selected.</div>
+  </div>
+
+  <div class="pane" id="pane-macro">
+    <h2>Select Macros</h2>
+    <p>Upload your .gdr.json macro.</p>
+    <input type="file" id="macroInput" accept=".json,application/json">
+    <div class="info" id="macroInfo">No macro loaded.</div>
+  </div>
+
+  <div class="pane" id="pane-render">
+    <h2>Render Sound</h2>
+    <p>Generate and download Clicks.wav.</p>
+    <div class="settings">
+      <label>Click length (ms)<input type="number" id="clickMs" value="30" min="5" max="200" step="5"></label>
+      <label>Volume<input type="number" id="volume" value="0.6" min="0" max="1" step="0.1"></label>
+    </div>
+    <button class="render" id="renderBtn" disabled>Render &amp; Download</button>
+    <div id="log"></div>
+  </div>
+
+  <div class="pane" id="pane-convert">
+    <h2>Macro Converter</h2>
+    <p>Supported: .gdr.json, Silicate .slc (v2/v3), TcBot .tcm (v1/v2).</p>
+    <input type="file" id="convInput" accept=".json,.slc,.tcm">
+    <div class="info" id="convInfo">No macro loaded.</div>
+
+    <div class="conv-actions" style="margin-top:16px;">
+      <label><input type="checkbox" id="optSort" checked> Sort by frame</label>
+      <label><input type="checkbox" id="optDedup" checked> Remove duplicates</label>
+      <label><input type="checkbox" id="optCleanRel" checked> Drop orphan releases</label>
+      <label><input type="checkbox" id="optP2"> Remove all P2</label>
+      <label><input type="checkbox" id="optP1"> Remove all P1</label>
+    </div>
+
+    <div class="settings">
+      <label>Frame offset<input type="number" id="convOffset" value="0" step="1"></label>
+      <label>Output filename<input type="text" id="convName" value="converted"></label>
+    </div>
+
+    <button class="render" id="convBtn" disabled>Convert &amp; Download</button>
+    <div id="convLog"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="botModal">
+  <div class="modal">
+    <h3>Select the target GD bot for conversion:</h3>
+    <div class="modal-btns">
+      <button onclick="doConvert('xd')">xdBot (.gdr.json)</button>
+      <button onclick="doConvert('silicate')">Silicate (.slc)</button>
+      <button onclick="doConvert('tcbot')">TcBot (.tcm)</button>
+      <button class="cancel" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==================== ОБЩЕЕ ====================
+const SR = 44100;
+const MAX_DURATION_SEC = 600;
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.target).classList.add('active');
+  });
+});
+
+// ==================== RENDER ====================
+let clicks = [];
+let pack = null;
+let singleAudio = null;
+
+document.getElementById('packInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const info = document.getElementById('packInfo');
+  info.classList.remove('error');
+  info.textContent = 'Loading...';
+  try {
+    if (/\.zip$/i.test(f.name)) {
+      pack = await loadPack(f);
+      singleAudio = null;
+      info.innerHTML = `<b>${pack.name}</b> — ${pack.clicks.length} sounds`;
+    } else {
+      singleAudio = await decodeAudioFile(f);
+      pack = null;
+      info.innerHTML = `<b>${f.name}</b> — single audio`;
+    }
+    updateRenderBtn();
+    document.querySelector('[data-target="pane-macro"]').click();
+  } catch (err) {
+    pack = null; singleAudio = null;
+    info.classList.add('error');
+    info.textContent = 'Error: ' + err.message;
+    updateRenderBtn();
+  }
+});
+
+async function decodeAudioFile(file) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC({ sampleRate: SR });
+  const buf = await file.arrayBuffer();
+  return await ctx.decodeAudioData(buf);
+}
+
+document.getElementById('macroInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const info = document.getElementById('macroInfo');
+  info.classList.remove('error');
+  try {
+    const data = JSON.parse(await f.text());
+    if (!Array.isArray(data.inputs)) throw new Error('missing "inputs"');
+    const fps = data.framerate || 240;
+    clicks = data.inputs.filter(i => i.down === true)
+      .map(i => i.frame / fps).filter(t => Number.isFinite(t) && t >= 0).sort((a,b)=>a-b);
+    info.innerHTML = `<b>${data.level?.name || '—'}</b> · FPS ${fps}<br>${clicks.length} clicks`;
+    updateRenderBtn();
+    document.querySelector('[data-target="pane-render"]').click();
+  } catch (err) {
+    clicks = [];
+    info.classList.add('error');
+    info.textContent = 'Error: ' + err.message;
+    updateRenderBtn();
+  }
+});
+
+function updateRenderBtn() {
+  document.getElementById('renderBtn').disabled = clicks.length === 0;
+}
+
+async function loadPack(file) {
+  const zip = await JSZip.loadAsync(file);
+  let jsonEntry = null;
+  zip.forEach((path, entry) => { if (entry.dir) return; if (/(^|\/)pack\.json$/i.test(path)) jsonEntry = entry; });
+  if (!jsonEntry) throw new Error('no pack.json in zip');
+  const meta = JSON.parse(await jsonEntry.async('text'));
+  const filesByName = {}, allNames = [];
+  zip.forEach((path, entry) => {
+    if (entry.dir || path.endsWith('pack.json')) return;
+    if (/(^|\/)releases?\//i.test(path) || /release/i.test(path)) return;
+    if (!/\.(wav|mp3|ogg|flac)$/i.test(path)) return;
+    const noExt = path.split('/').pop().replace(/\.[^.]+$/, '');
+    filesByName[noExt.toLowerCase()] = entry; allNames.push(noExt);
+  });
+  let clickNames = (meta['click-files'] || []).slice();
+  if (!clickNames.length) clickNames = allNames.filter(n => /^click/i.test(n));
+  if (!clickNames.length) clickNames = allNames;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC({ sampleRate: SR });
+  const decodeEntry = async (entry) => ctx.decodeAudioData(await entry.async('arraybuffer'));
+  const decodeList = async (names) => {
+    const bufs = [];
+    for (const name of names) {
+      const entry = filesByName[name.toLowerCase()];
+      if (entry) { try { bufs.push(await decodeEntry(entry)); } catch(e) {} }
+    }
+    return bufs;
+  };
+  const clickBufs = await decodeList(clickNames);
+  if (!clickBufs.length) throw new Error('no click sounds found in pack');
+  return { name: meta.name, clicks: clickBufs };
+}
+
+function buildWav(times, opts) {
+  if (!times.length) throw new Error('No clicks to render');
+  let maxTime = 0; for (let i = 0; i < times.length; i++) if (times[i] > maxTime) maxTime = times[i];
+  let duration = maxTime + 0.5; if (duration > MAX_DURATION_SEC) duration = MAX_DURATION_SEC;
+  const total = Math.ceil(duration * SR);
+  const samples = new Float32Array(total);
+  const cache = new Map();
+  const prep = (audioBuf) => {
+    if (cache.has(audioBuf)) return cache.get(audioBuf);
+    let src = audioBuf.getChannelData(0);
+    if (audioBuf.sampleRate !== SR) {
+      const ratio = audioBuf.sampleRate / SR;
+      const outLen = Math.floor(src.length / ratio);
+      const out = new Float32Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const pos = i * ratio; const i0 = Math.floor(pos); const i1 = Math.min(i0 + 1, src.length - 1);
+        const frac = pos - i0; out[i] = src[i0] * (1 - frac) + src[i1] * frac;
+      }
+      src = out;
+    }
+    cache.set(audioBuf, src); return src;
+  };
+  const getSample = (() => {
+    if (pack) return () => prep(pack.clicks[Math.floor(Math.random() * pack.clicks.length)]);
+    if (singleAudio) { const s = prep(singleAudio); return () => s; }
+    throw new Error('No audio source');
+  })();
+  for (const t of times) {
+    if (t > duration) continue;
+    const start = Math.floor(t * SR);
+    const smp = getSample();
+    for (let i = 0; i < smp.length && start + i < total; i++) {
+      samples[start + i] = Math.max(-1, Math.min(1, samples[start + i] + smp[i]));
+    }
+  }
+  const buffer = new ArrayBuffer(44 + total * 2);
+  const view = new DataView(buffer);
+  const ws = (o, s) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  ws(0, 'RIFF'); view.setUint32(4, 36 + total * 2, true); ws(8, 'WAVE');
+  ws(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, SR, true);
+  view.setUint32(28, SR * 2, true); view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true); ws(36, 'data'); view.setUint32(40, total * 2, true);
+  let off = 44;
+  for (let i = 0; i < total; i++) {
+    view.setInt16(off, Math.max(-1, Math.min(1, samples[i])) * 0x7fff, true); off += 2;
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+document.getElementById('renderBtn').addEventListener('click', () => {
+  const logEl = document.getElementById('log');
+  logEl.classList.remove('error');
+  if (!pack && !singleAudio) {
+    logEl.classList.add('error');
+    logEl.textContent = 'Please select a click pack first.';
+    document.querySelector('[data-target="pane-pack"]').click();
+    return;
+  }
+  const opts = { clickMs: +document.getElementById('clickMs').value || 30, volume: +document.getElementById('volume').value || 0.6 };
+  try {
+    const blob = buildWav(clicks, opts);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'Clicks.wav'; a.click(); URL.revokeObjectURL(url);
+    logEl.textContent = `Done — Clicks.wav (${(blob.size / 1024).toFixed(1)} KB)`;
+  } catch (err) {
+    logEl.classList.add('error');
+    logEl.textContent = 'Error: ' + err.message;
+  }
+});
+
+// ==================== CONVERTER ====================
+let convData = null;
+
+// ----- SLC v3 (SLC3RPLY) -----
+function parseSLCv3(buffer) {
+  const view = new DataView(buffer);
+  const fps = view.getFloat64(8, true);
+  const numInputs = view.getUint32(40, true);
+  let offset = 44;
+  const inputs = [];
+  let currentTick = 0;
+  for (let i = 0; i < numInputs; i++) {
+    if (offset + 2 > buffer.byteLength) break;
+    const val = (view.getUint8(offset) << 8) | view.getUint8(offset + 1);
+    offset += 2;
+    const delta = val & 0x0FFF;
+    const btn = (val >> 12) & 0x03;
+    const down = ((val >> 14) & 0x01) === 1;
+    const isP2 = ((val >> 15) & 0x01) === 1;
+    currentTick += delta;
+    inputs.push({ frame: currentTick, down, btn, '2p': isP2 });
+  }
+  return {
+    author: 'Silicate', description: 'Converted from .slc v3',
+    duration: currentTick / fps, gameVersion: 29.0, version: 1.0, framerate: fps,
+    seed: 0, coins: 0, ldm: false,
+    bot: { name: 'Silicate', version: '3' }, level: { id: 0, name: 'Converted Level' },
+    inputs
+  };
+}
+
+// ----- SLC v2 (SILL) -----
+function parseSLCv2(buffer) {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  let off = 0;
+
+  const header = String.fromCharCode(...bytes.slice(0, 4));
+  if (header !== 'SILL') throw new Error('Invalid SLC v2 header');
+  off += 4;
+
+  const fps = view.getFloat64(off, true); off += 8;
+  const metaSize = Number(view.getBigUint64(off, true)); off += 8;
+  off += metaSize;
+
+  const inputCount = Number(view.getBigUint64(off, true)); off += 8;
+  const blobCount = Number(view.getBigUint64(off, true)); off += 8;
+
+  const blobs = [];
+  for (let i = 0; i < blobCount; i++) {
+    const byteSize = Number(view.getBigUint64(off, true)); off += 8;
+    const start    = Number(view.getBigUint64(off, true)); off += 8;
+    const length   = Number(view.getBigUint64(off, true)); off += 8;
+    blobs.push({ byteSize, start, length });
+  }
+
+  const rawInputs = new Array(inputCount);
+  let currentFrame = 0;
+
+  for (const blob of blobs) {
+    for (let j = 0; j < blob.length; j++) {
+      const idx = blob.start + j;
+      if (idx >= inputCount) break;
+
+      let state = 0n;
+      for (let k = 0; k < blob.byteSize; k++) {
+        state |= BigInt(bytes[off + k]) << BigInt(8 * k);
+      }
+      off += blob.byteSize;
+
+      const delta    = Number(state >> 5n);
+      const type     = Number((state >> 2n) & 0x07n);
+      const player2  = Number((state >> 1n) & 0x01n) === 1;
+      const holding  = Number(state & 0x01n) === 1;
+
+      if (type === 7) off += 8;
+
+      currentFrame += delta;
+      rawInputs[idx] = { frame: currentFrame, type, holding, player2 };
+    }
+  }
+
+  const inputs = [];
+  for (const raw of rawInputs) {
+    if (!raw) continue;
+    if (raw.type >= 1 && raw.type <= 3) {
+      inputs.push({ frame: raw.frame, down: raw.holding, btn: raw.type, '2p': raw.player2 });
+    }
+  }
+
+  const lastFrame = inputs.length ? inputs[inputs.length - 1].frame : 0;
+  return {
+    author: 'Silicate', description: 'Converted from .slc v2',
+    duration: lastFrame / fps, gameVersion: 29.0, version: 1.0, framerate: fps,
+    seed: 0, coins: 0, ldm: false,
+    bot: { name: 'Silicate', version: '2' }, level: { id: 0, name: 'Converted Level' },
+    inputs
+  };
+}
+
+function parseSLC(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length < 8) throw new Error('File too small to be .slc');
+  const head8 = String.fromCharCode(...bytes.slice(0, 8));
+  if (head8 === 'SLC3RPLY') return parseSLCv3(buffer);
+  if (head8.startsWith('SILL')) return parseSLCv2(buffer);
+  const hex = Array.from(bytes.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ');
+  throw new Error(
+    'Unsupported .slc format (likely an old pre-v2 Silicate build). ' +
+    'First 16 bytes: ' + hex + '. ' +
+    'Only v2 ("SILL") and v3 ("SLC3RPLY") are supported.'
+  );
+}
+
+// ----- TCM (исправленный по tcm-rs) -----
+function parseTCM(buffer) {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  let offset = 0;
+
+  const HEADER = [0x9f,0x88,0x89,0x84,0x9f,0x3b,0x1d,0xd8,0xcc,0xa1,0x86,0x8a,0x88,0x99,0x84,0x00];
+  for (let i = 0; i < 16; i++) {
+    if (bytes[offset + i] !== HEADER[i]) throw new Error('Invalid .tcm header');
+  }
+  offset += 16;
+
+  const metaVersion = bytes[offset];
+  const flags = bytes[offset + 2];
+  const tpsOrDt = view.getFloat32(offset + 4, true);
+  let tps;
+  if (metaVersion === 1) tps = tpsOrDt;
+  else if (metaVersion === 2) {
+    const isTps = (flags & 2) !== 0;
+    tps = isTps ? tpsOrDt : 1.0 / tpsOrDt;
+  } else throw new Error('Unsupported .tcm version: ' + metaVersion);
+  offset += 64;
+
+  const inputs = [];
+
+  const readVarU32 = () => {
+    let value = 0, shift = 0;
+    while (true) {
+      const byte = bytes[offset++];
+      value |= (byte & 0x7F) << shift;
+      if ((byte & 0x80) === 0) return value >>> 0;
+      shift += 7;
+    }
+  };
+
+  if (metaVersion === 1) {
+    const inputCount = readVarU32();
+    for (let i = 0; i < inputCount; i++) {
+      const frame = readVarU32();
+      const inputData = bytes[offset++];
+      const btnType = inputData & 0x07;
+      if (btnType < 3) {
+        const btn = btnType + 1;
+        const push = (inputData & 0x80) !== 0;
+        const player2 = (inputData & 0x40) !== 0;
+        inputs.push({ frame, down: push, btn, '2p': player2 });
+      }
+    }
+  } else if (metaVersion === 2) {
+    let currentFrame = readVarU32();
+    let lastDelta = 0n;
+    let nextBlob = 'Action';
+    let pendingBlobType = 0;
+    let pendingMagic = false;
+
+    while (offset < bytes.length) {
+      if (nextBlob === 'Action') {
+        const byte = bytes[offset++];
+        
+        const inputData = byte & 0x03;
+        const customType = (byte >> 2) & 0x03;
+        const extra = (byte & 0x10) !== 0;
+        const deltaData = (byte >> 5) & 0x07;
+        
+        pendingBlobType = (deltaData >> 1) & 0x03;
+        pendingMagic = (deltaData & 1) !== 0;
+
+        if (inputData > 0) {
+          const btn = inputData;
+          const push = (byte & 0x04) !== 0;
+          const player2 = (byte & 0x08) !== 0;
+          const swift = extra;
+
+          inputs.push({ frame: currentFrame, down: push, btn, '2p': player2 });
+          if (swift) {
+            inputs.push({ frame: currentFrame, down: !push, btn, '2p': player2 });
+          }
+          nextBlob = 'FrameDelta';
+        } else {
+          if (customType === 3) {
+            if (extra) nextBlob = 'FrameDelta';
+            else nextBlob = 'Tps';
+          } else {
+            if (extra) {
+              nextBlob = 'Seed';
+            } else {
+              currentFrame = 0;
+              nextBlob = 'FrameDelta';
+            }
+          }
+        }
+      } else if (nextBlob === 'FrameDelta') {
+        let val = 0n;
+        if (pendingBlobType === 1) val = BigInt(bytes[offset++]);
+        else if (pendingBlobType === 2) { val = BigInt(view.getUint16(offset, true)); offset += 2; }
+        else if (pendingBlobType === 3) { val = BigInt(view.getUint32(offset, true)); offset += 4; }
+        
+        const delta = pendingMagic ? lastDelta + val : val;
+        if (delta !== 0n) lastDelta = delta;
+        currentFrame += Number(delta);
+        
+        pendingBlobType = 0;
+        pendingMagic = false;
+        nextBlob = 'Action';
+      } else if (nextBlob === 'Tps') {
+        offset += 4;
+        nextBlob = 'FrameDelta';
+      } else if (nextBlob === 'Seed') {
+        offset += 8;
+        currentFrame = 0;
+        nextBlob = 'FrameDelta';
+      }
+    }
+  }
+
+  const lastFrame = inputs.length ? inputs[inputs.length - 1].frame : 0;
+  return {
+    author: 'TcBot', description: 'Converted from .tcm',
+    duration: lastFrame / tps, gameVersion: 29.0, version: 1.0, framerate: tps,
+    seed: 0, coins: 0, ldm: false,
+    bot: { name: 'TcBot', version: '2' }, level: { id: 0, name: 'Converted Level' },
+    inputs
+  };
+}
+
+document.getElementById('convInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const info = document.getElementById('convInfo');
+  info.classList.remove('error');
+
+  try {
+    if (/\.slc$/i.test(f.name)) {
+      const buf = await f.arrayBuffer();
+      convData = parseSLC(buf);
+      info.innerHTML = `<b>Silicate Replay</b><br>${convData.inputs.length} inputs · FPS ${convData.framerate.toFixed(1)}`;
+      document.getElementById('convName').value = f.name.replace(/\.slc$/i, '');
+    } else if (/\.tcm$/i.test(f.name)) {
+      const buf = await f.arrayBuffer();
+      convData = parseTCM(buf);
+      info.innerHTML = `<b>TcBot Replay</b><br>${convData.inputs.length} inputs · FPS ${convData.framerate.toFixed(1)}`;
+      document.getElementById('convName').value = f.name.replace(/\.tcm$/i, '');
+    } else {
+      const text = await f.text();
+      convData = JSON.parse(text);
+      if (!Array.isArray(convData.inputs)) throw new Error('missing "inputs" array');
+      info.innerHTML = `<b>${convData.level?.name || '—'}</b><br>${convData.inputs.length} inputs · FPS ${convData.framerate || 240}`;
+      document.getElementById('convName').value = f.name.replace(/\.json$/i, '');
+    }
+    document.getElementById('convBtn').disabled = false;
+  } catch (err) {
+    convData = null;
+    info.classList.add('error');
+    info.textContent = err.message;
+    document.getElementById('convBtn').disabled = true;
+  }
+});
+
+document.getElementById('convBtn').addEventListener('click', () => {
+  if (!convData) return;
+  document.getElementById('botModal').classList.add('open');
+});
+
+function closeModal() {
+  document.getElementById('botModal').classList.remove('open');
+}
+
+function doConvert(targetBot) {
+  closeModal();
+  const logEl = document.getElementById('convLog');
+  logEl.classList.remove('error');
+
+  try {
+    let data = JSON.parse(JSON.stringify(convData));
+    let inputs = data.inputs.slice();
+    const offset = +document.getElementById('convOffset').value || 0;
+
+    if (offset !== 0) inputs = inputs.map(i => ({...i, frame: Math.max(0, i.frame + offset)}));
+    if (document.getElementById('optP2').checked) inputs = inputs.filter(i => i['2p'] !== true);
+    if (document.getElementById('optP1').checked) inputs = inputs.filter(i => i['2p'] === true);
+    if (document.getElementById('optSort').checked) inputs.sort((a, b) => a.frame - b.frame);
+
+    if (document.getElementById('optDedup').checked) {
+      const seen = new Set();
+      inputs = inputs.filter(i => {
+        const key = `${i.frame}|${i.down}|${i.btn}|${i['2p']}`;
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      });
+    }
+
+    if (document.getElementById('optCleanRel').checked) {
+      const pressed = {};
+      inputs = inputs.filter(i => {
+        const key = `${i.btn}|${i['2p']}`;
+        if (i.down) { pressed[key] = true; return true; }
+        else { if (!pressed[key]) return false; pressed[key] = false; return true; }
+      });
+    }
+
+    if (inputs.length) {
+      const fps = data.framerate || 240;
+      data.duration = inputs[inputs.length - 1].frame / fps;
+    } else {
+      data.duration = 0;
+    }
+    data.inputs = inputs;
+
+    let finalName = (document.getElementById('convName').value || 'converted').trim();
+    let blob, ext;
+
+    if (targetBot === 'xd') {
+      ext = '.gdr.json';
+      blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    } else if (targetBot === 'silicate') {
+      ext = '.slc';
+      blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      logEl.textContent = 'Warning: .slc binary writer not implemented — saving JSON with .slc extension.';
+    } else if (targetBot === 'tcbot') {
+      ext = '.tcm';
+      blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      logEl.textContent = 'Warning: .tcm binary writer not implemented — saving JSON with .tcm extension.';
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = finalName + ext;
+    a.click();
+    URL.revokeObjectURL(url);
+    if (!logEl.textContent) logEl.textContent = `Saved as ${a.download}`;
+  } catch (err) {
+    logEl.classList.add('error');
+    logEl.textContent = 'Error: ' + err.message;
+  }
+}
+</script>
+</body>
+</html>

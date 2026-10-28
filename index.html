@@ -45,6 +45,16 @@
   #log { margin-top: 12px; font-size: 13px; color: var(--text-muted); text-align: center; white-space: pre-wrap; }
   #log.error { color: var(--error); }
   @media (max-width: 480px) { .settings { grid-template-columns: 1fr; } }
+
+  /* Стили для паков */
+  .pack-list { display: flex; flex-direction: column; gap: 12px; }
+  .pack-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .pack-card-info { flex-grow: 1; }
+  .pack-card-title { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .pack-card-author { font-size: 12px; color: var(--text-muted); }
+  .pack-card-btn { padding: 8px 16px; background: var(--tab-active-bg); color: var(--tab-active-text); border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; transition: filter 0.15s; text-decoration: none; display: inline-block; }
+  .pack-card-btn:hover { filter: brightness(0.9); }
+  .pack-card-btn:disabled { background: var(--btn-disabled); color: var(--text-muted); cursor: not-allowed; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
@@ -55,6 +65,7 @@
     <button class="tab active" data-target="pane-pack">ClickPacks</button>
     <button class="tab" data-target="pane-render">Render Sound</button>
     <button class="tab" data-target="pane-macro">Select Macros</button>
+    <button class="tab" data-target="pane-packs-download">AwerClickPAKDOW</button>
   </div>
 
   <div class="pane active" id="pane-pack">
@@ -82,6 +93,15 @@
     <div id="log"></div>
     <div style="text-align: center; margin-top: 16px; font-size: 12px; color: var(--text-muted);">
       Author: Awerlolop
+    </div>
+  </div>
+
+  <!-- НОВАЯ ВКЛАДКА -->
+  <div class="pane" id="pane-packs-download">
+    <h2>AwerClickPAKDOW</h2>
+    <p>Select a pack to apply it instantly.</p>
+    <div class="pack-list" id="packList">
+      <div class="info">Loading packs from data.json...</div>
     </div>
   </div>
 </div>
@@ -268,6 +288,83 @@ document.getElementById('renderBtn').addEventListener('click', () => {
   } catch (err) {
     logEl.classList.add('error');
     logEl.textContent = 'Error: ' + err.message;
+  }
+});
+
+// --- СКРИПТ ДЛЯ ВКЛАДКИ AwerClickPAKDOW ---
+document.addEventListener('DOMContentLoaded', async () => {
+  const listEl = document.getElementById('packList');
+  try {
+    const response = await fetch('./data.json');
+    if (!response.ok) throw new Error('data.json not found');
+    const packs = await response.json();
+
+    if (!packs || packs.length === 0) {
+      listEl.innerHTML = '<div class="info">No packs available yet.</div>';
+      return;
+    }
+
+    listEl.innerHTML = '';
+    
+    packs.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'pack-card';
+      
+      const info = document.createElement('div');
+      info.className = 'pack-card-info';
+      info.innerHTML = `
+        <div class="pack-card-title">${p.name || 'Unnamed Pack'}</div>
+        <div class="pack-card-author">by ${p.author || 'Unknown'}</div>
+      `;
+
+      // Если указан путь к файлу в репозитории ("path") или внешний ("url")
+      if (p.path || p.url) {
+        const btn = document.createElement('button');
+        btn.className = 'pack-card-btn';
+        btn.textContent = 'Apply';
+        btn.onclick = async () => {
+          btn.textContent = 'Loading...';
+          btn.disabled = true;
+          try {
+            const fileUrl = p.path || p.url;
+            const res = await fetch(fileUrl);
+            if (!res.ok) throw new Error('Network error');
+            const blob = await res.blob();
+            const file = new File([blob], 'pack.zip', { type: 'application/zip' });
+            
+            pack = await loadPack(file);
+            singleAudio = null;
+            
+            const packInfo = document.getElementById('packInfo');
+            packInfo.className = 'info success';
+            packInfo.innerHTML = `<b>${p.name || 'Pack'}</b> applied (${pack.clicks.length} sounds).`;
+            
+            updateRenderBtn();
+            document.querySelector('[data-target="pane-macro"]').click();
+          } catch (err) {
+            alert('Failed to load pack: ' + err.message);
+            btn.textContent = 'Apply';
+            btn.disabled = false;
+          }
+        };
+        card.appendChild(info);
+        card.appendChild(btn);
+      } else if (p.link) {
+        // Если ссылка на внешний ресурс (только скачать)
+        const btn = document.createElement('a');
+        btn.className = 'pack-card-btn';
+        btn.href = p.link;
+        btn.target = '_blank';
+        btn.textContent = 'Download';
+        card.appendChild(info);
+        card.appendChild(btn);
+      }
+      
+      listEl.appendChild(card);
+    });
+
+  } catch (err) {
+    listEl.innerHTML = `<div class="info error">Error loading packs: ${err.message}<br><br>Make sure data.json is in the same folder.</div>`;
   }
 });
 </script>

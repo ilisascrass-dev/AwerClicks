@@ -295,7 +295,7 @@ document.getElementById('renderBtn').addEventListener('click', () => {
 document.addEventListener('DOMContentLoaded', async () => {
   const listEl = document.getElementById('packList');
   try {
-    const response = await fetch('./data.json');
+    const response = await fetch('./data.json?v=' + Date.now(), { cache: 'no-store' });
     if (!response.ok) throw new Error('data.json not found');
     const packs = await response.json();
 
